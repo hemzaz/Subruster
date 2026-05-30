@@ -1,5 +1,4 @@
 use std::net::IpAddr;
-use std::io::{Error, ErrorKind};
 use anyhow::{anyhow, Result};
 use trust_dns_resolver::{ AsyncResolver, config::*};
 
@@ -19,12 +18,6 @@ pub async fn hostname_lookup_print(nameserver: IpAddr, hostname: &String) -> std
 }
 */
 
-
-#[tokio::main]
-pub async fn hostname_lookup_return_ip(nameserver: IpAddr, hostname: &String) -> Result<IpAddr> {
-    let address = lookup(Some(&[nameserver]), hostname.clone()).await;
-    address
-}
 
 pub async fn lookup(nameservers: Option<&[IpAddr]>, host: String) -> Result<IpAddr> {
     let resolver = match nameservers {

@@ -43,6 +43,10 @@ https://user-images.githubusercontent.com/25774631/153847521-22aa46f7-4c22-43bb-
 
         --loghttp: Checks if subdomains have http/s services open and logs them
         
+        --output-format <text|json>: Output format (default text). In json mode a single JSON document is written to stdout and all progress goes to stderr, so results can be piped to jq/scripts.
+        
+        --json: Shorthand for --output-format json
+        
         --useragent <useragent>: Specifies the useragent in http requests
         
         --randomagent: Uses a random agent

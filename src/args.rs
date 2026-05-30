@@ -3,6 +3,13 @@ use std::env;
 use std::net::{IpAddr, Ipv4Addr};
 use crate::file_operations;
 
+///Output format for results: human-readable text or machine-readable JSON
+#[derive(Clone, Copy, PartialEq)]
+pub enum OutputFormat {
+    Text,
+    Json,
+}
+
 ///Command-line arguments saved to an Args struct after read/parsed
 #[derive(Clone)]
 pub struct Args {
@@ -20,7 +27,8 @@ pub struct Args {
     log_http_https_domains: bool,
     report_folder_path: String,
     random_agent_in_every_req: bool,
-    current_useragent: String
+    current_useragent: String,
+    output_format: OutputFormat
 }
 
 impl Args {
@@ -41,6 +49,7 @@ impl Args {
             report_folder_path: "./report".to_string(),
             random_agent_in_every_req: false,
             current_useragent: "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/44.0.2403.125 Safari/537.36".to_string(),
+            output_format: OutputFormat::Text,
         }
     }
 
@@ -55,23 +64,39 @@ impl Args {
         self.nameserver
     }
     pub fn set_nameserver(&mut self, nameserver: String) {
-        self.nameserver = nameserver.parse().unwrap();
+        match nameserver.parse() {
+            Ok(ip) => self.nameserver = ip,
+            Err(_) => {
+                eprintln!("Invalid nameserver IP address: {}", nameserver);
+                std::process::exit(1);
+            }
+        }
     }
 
     pub fn get_dnsthread_number(&self) -> u64 {
         self.dnsthread_number
     }
     pub fn set_dnsthread_number(&mut self, dnsthread_number: String ) {
-        let t_n = dnsthread_number.parse().unwrap();
-        self.dnsthread_number = t_n;
+        match dnsthread_number.parse() {
+            Ok(t_n) => self.dnsthread_number = t_n,
+            Err(_) => {
+                eprintln!("Invalid dns thread number: {}", dnsthread_number);
+                std::process::exit(1);
+            }
+        }
     }
 
     pub fn get_httpthread_number(&self) -> u64 {
         self.httpthread_number
     }
     pub fn set_httpthread_number(&mut self, httpthread_number: String ) {
-        let t_n = httpthread_number.parse().unwrap();
-        self.httpthread_number = t_n;
+        match httpthread_number.parse() {
+            Ok(t_n) => self.httpthread_number = t_n,
+            Err(_) => {
+                eprintln!("Invalid http thread number: {}", httpthread_number);
+                std::process::exit(1);
+            }
+        }
     }
 
     pub fn get_httpsearch_mode(&self) -> bool {
@@ -117,7 +142,7 @@ impl Args {
     }
 
     pub fn get_report_mode(&self) -> bool {
-        self.verbose_mode.clone()
+        self.report_mode
     }
     pub fn set_report_mode(&mut self, report_mode: bool ) {
         self.report_mode = report_mode;
@@ -150,6 +175,16 @@ impl Args {
     pub fn set_current_useragent(&mut self, current_useragent: String ) {
         self.current_useragent = current_useragent;
     }
+
+    pub fn get_output_format(&self) -> OutputFormat {
+        self.output_format
+    }
+    pub fn set_output_format(&mut self, output_format: OutputFormat) {
+        self.output_format = output_format;
+    }
+    pub fn is_machine_readable(&self) -> bool {
+        self.output_format != OutputFormat::Text
+    }
 }
 ///Used to hold useragents in a list in order to chance useragents dynamically during execution
 #[derive(Clone)]
@@ -177,9 +212,12 @@ impl UserAgentList {
     }
 
     pub fn get_random_useragent(&self) -> String {
-        let mut rng = rand::thread_rng();
         let agent_file_size = self.useragents.len();
-        self.useragents[rng.gen_range(0..agent_file_size-1)].clone()
+        if agent_file_size == 0 {
+            return String::new();
+        }
+        let mut rng = rand::thread_rng();
+        self.useragents[rng.gen_range(0..agent_file_size)].clone()
     }
 
     pub fn get_useragent_list(&self) -> Vec<String> {
@@ -200,10 +238,9 @@ pub fn read_args() -> (Args, UserAgentList)  {
     let mut dnsthread_flag: bool = false;
     let mut httpthread_flag: bool = false;
     let mut http_timeout_flag: bool = false;
+    let mut output_format_flag: bool = false;
 
     let mut useragentlist: UserAgentList = UserAgentList::init();
-
-    println!("\x1b[1m{}\x1b[0m", print_logo());
 
     // Loop over arguments.
     for argument in env::args() {
@@ -271,13 +308,43 @@ pub fn read_args() -> (Args, UserAgentList)  {
 
         // Use flag after "--subdomain-wordlist" or "-w" was detected to set argument.
         if http_timeout_flag {
-            session_args.set_http_timeout(argument.parse().unwrap());
+            match argument.parse() {
+                Ok(timeout) => session_args.set_http_timeout(timeout),
+                Err(_) => {
+                    eprintln!("Invalid http timeout: {}", argument);
+                    std::process::exit(1);
+                }
+            }
             http_timeout_flag = false;
             continue;
         }
         // If "--httptimeout" detected, set hostname flag bool.
         if argument == "--httptimeout" {
             http_timeout_flag = true;
+            continue;
+        }
+
+        // Use flag after "--output-format" was detected to set the value.
+        if output_format_flag {
+            match argument.as_str() {
+                "text" => session_args.set_output_format(OutputFormat::Text),
+                "json" => session_args.set_output_format(OutputFormat::Json),
+                other => {
+                    eprintln!("Invalid output format: {} (expected text|json)", other);
+                    std::process::exit(1);
+                }
+            }
+            output_format_flag = false;
+            continue;
+        }
+        // If "--output-format" detected, expect the format value next.
+        if argument == "--output-format" {
+            output_format_flag = true;
+            continue;
+        }
+        // If "--json" detected, shorthand for "--output-format json".
+        if argument == "--json" {
+            session_args.set_output_format(OutputFormat::Json);
             continue;
         }
 
@@ -301,8 +368,10 @@ pub fn read_args() -> (Args, UserAgentList)  {
 
         // If "--randomagent" detected, read useragent file into the UserAgentList struct and choose a random agent for current useragent.
         if argument == "--randomagent" {
-            useragentlist.read_useragents();
-            session_args.set_current_useragent(useragentlist.get_random_useragent());
+            match useragentlist.read_useragents() {
+                Ok(()) => session_args.set_current_useragent(useragentlist.get_random_useragent()),
+                Err(e) => eprintln!("Could not read useragent list: {}", e),
+            }
             continue;
         }
 
@@ -362,8 +431,12 @@ pub fn read_args() -> (Args, UserAgentList)  {
         
     }
 
-    // Display arguments.
-    println!("{}", display_args(&session_args));
+    // Display the logo and parsed arguments only in human (text) mode so that
+    // machine-readable mode keeps stdout clean for the JSON document.
+    if !session_args.is_machine_readable() {
+        println!("\x1b[1m{}\x1b[0m", print_logo());
+        println!("{}", display_args(&session_args));
+    }
 
     (session_args, useragentlist)
     
@@ -440,7 +513,11 @@ fn help() -> String {
         --randomagent: Uses a random agent
         
         --randomagent-everyrequest: Uses different useragent in each http request
-        
+
+        --output-format <text|json>: Output format (default text). Use json for script-parseable output.
+
+        --json: Shorthand for --output-format json
+
         -h, --help: This page
         
         ")
